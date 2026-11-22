@@ -196,14 +196,13 @@ impl IoStoreToc {
         let blocks_end = section_end(at, block_count, 12, data.len())?;
         let block_bytes = &data[at..blocks_end];
         at = blocks_end;
-        let iv_count = if version >= 10
-            && flags & 0x02 != 0
-            && encryption_method == ENCRYPTION_METHOD_AES_CTR
-        {
-            block_count + usize::from(flags & 0x08 != 0)
-        } else {
-            0
-        };
+        let iv_count =
+            if version >= 10 && flags & 0x02 != 0 && encryption_method == ENCRYPTION_METHOD_AES_CTR
+            {
+                block_count + usize::from(flags & 0x08 != 0)
+            } else {
+                0
+            };
         let iv_end = section_end(at, iv_count, 12, data.len())?;
         let iv_bytes = &data[at..iv_end];
         at = iv_end;
