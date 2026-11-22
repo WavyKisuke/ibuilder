@@ -233,6 +233,10 @@ mod tests {
     fn ue4_27_export_bundle_is_not_misidentified_as_a_shader_chunk() {
         let mut data = fixture();
         data[16] = 3;
+        data[HEADER_SIZE + 11] = CHUNK_EXPORT_BUNDLE_UE427;
+        data.drain(HEADER_SIZE + 24 + 20..HEADER_SIZE + 24 + 28);
+        data[84..88].copy_from_slice(&0u32.to_le_bytes());
+        data[96..100].copy_from_slice(&0u32.to_le_bytes());
         let toc = IoStoreToc::parse(&data).unwrap();
         assert_eq!(toc.shader_chunk_count(), 0);
         assert_eq!(toc.export_bundle_chunk_count(), 1);
