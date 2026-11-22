@@ -169,7 +169,8 @@ impl IoStoreToc {
     }
 
     pub fn shader_chunk_count(&self) -> usize {
-        if self.version < 4 { return 0; }\n        self.chunks.iter().filter(|(id, _)| id.kind == CHUNK_SHADER_LIBRARY || id.kind == CHUNK_SHADER_CODE).count()
+        if self.version < 4 { return 0; }
+        self.chunks.iter().filter(|(id, _)| id.kind == CHUNK_SHADER_LIBRARY || id.kind == CHUNK_SHADER_CODE).count()
     }
 
     pub fn export_bundle_chunk_count(&self) -> usize {
