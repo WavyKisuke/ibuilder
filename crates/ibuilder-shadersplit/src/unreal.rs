@@ -203,6 +203,7 @@ mod tests {
         for (i, kind) in [8u8, 9].into_iter().enumerate() {
             let p = HEADER_SIZE + i * 12;
             b[p..p + 8].copy_from_slice(&(i as u64 + 1).to_le_bytes());
+            b[p + 8..p + 10].copy_from_slice(&1u16.to_be_bytes());
             b[p + 11] = kind;
         }
         let ranges = HEADER_SIZE + 24;
@@ -226,6 +227,16 @@ mod tests {
         assert_eq!(toc.export_bundle_chunk_count(), 0);
         assert_eq!(toc.blocks.len(), 1);
         assert_eq!(toc.compression_methods, vec!["None"]);
+    }
+
+    #[test]
+    fn ue4_27_export_bundle_is_not_misidentified_as_a_shader_chunk() {
+        let mut data = fixture();
+        data[16] = 3;
+        let toc = IoStoreToc::parse(&data).unwrap();
+        assert_eq!(toc.shader_chunk_count(), 0);
+        assert_eq!(toc.export_bundle_chunk_count(), 1);
+        assert_eq!(toc.chunks[0].0.index, 1);
     }
 
     #[test]
