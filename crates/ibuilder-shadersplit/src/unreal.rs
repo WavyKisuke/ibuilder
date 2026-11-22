@@ -18,7 +18,9 @@ pub const CHUNK_EXPORT_BUNDLE_UE427: u8 = 2;
 pub struct IoStoreError(pub String);
 
 impl fmt::Display for IoStoreError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str(&self.0) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
 }
 impl std::error::Error for IoStoreError {}
 
@@ -60,13 +62,19 @@ pub struct IoStoreToc {
     pub compression_methods: Vec<String>,
 }
 
-fn fail(why: &str) -> IoStoreError { IoStoreError(why.to_string()) }
+fn fail(why: &str) -> IoStoreError {
+    IoStoreError(why.to_string())
+}
 fn le_u32(b: &[u8], at: usize) -> Result<u32, IoStoreError> {
-    let s = b.get(at..at + 4).ok_or_else(|| fail("truncated IoStore header"))?;
+    let s = b
+        .get(at..at + 4)
+        .ok_or_else(|| fail("truncated IoStore header"))?;
     Ok(u32::from_le_bytes(s.try_into().unwrap()))
 }
 fn le_u64(b: &[u8], at: usize) -> Result<u64, IoStoreError> {
-    let s = b.get(at..at + 8).ok_or_else(|| fail("truncated IoStore header"))?;
+    let s = b
+        .get(at..at + 8)
+        .ok_or_else(|| fail("truncated IoStore header"))?;
     Ok(u64::from_le_bytes(s.try_into().unwrap()))
 }
 fn be_u40(b: &[u8]) -> u64 {
@@ -78,10 +86,22 @@ fn le_u40(b: &[u8]) -> u64 {
 fn le_u24(b: &[u8]) -> u32 {
     u32::from(b[0]) | (u32::from(b[1]) << 8) | (u32::from(b[2]) << 16)
 }
-fn section_end(start: usize, count: usize, width: usize, total: usize) -> Result<usize, IoStoreError> {
-    let end = start.checked_add(count.checked_mul(width).ok_or_else(|| fail("IoStore section size overflow"))?)
+fn section_end(
+    start: usize,
+    count: usize,
+    width: usize,
+    total: usize,
+) -> Result<usize, IoStoreError> {
+    let end = start
+        .checked_add(
+            count
+                .checked_mul(width)
+                .ok_or_else(|| fail("IoStore section size overflow"))?,
+        )
         .ok_or_else(|| fail("IoStore section offset overflow"))?;
-    if end > total { return Err(fail("truncated IoStore TOC section")); }
+    if end > total {
+        return Err(fail("truncated IoStore TOC section"));
+    }
     Ok(end)
 }
 
@@ -89,11 +109,17 @@ impl IoStoreToc {
     /// Parse the fixed header, chunk table, compression blocks, and method names.
     /// Unknown trailing sections (signatures and directory indexes) are left untouched.
     pub fn parse(data: &[u8]) -> Result<Self, IoStoreError> {
-        if data.len() < HEADER_SIZE { return Err(fail("truncated IoStore TOC header")); }
-        if data.get(..16) != Some(TOC_MAGIC.as_slice()) { return Err(fail("invalid IoStore TOC magic")); }
+        if data.len() < HEADER_SIZE {
+            return Err(fail("truncated IoStore TOC header"));
+        }
+        if data.get(..16) != Some(TOC_MAGIC.as_slice()) {
+            return Err(fail("invalid IoStore TOC magic"));
+        }
 
         let version = data[16];
-        if version == 0 || version > 10 { return Err(fail("unsupported IoStore TOC version")); }
+        if version == 0 || version > 10 {
+            return Err(fail("unsupported IoStore TOC version"));
+        }
         let header_size = le_u32(data, 20)? as usize;
         let entry_count = le_u32(data, 24)? as usize;
         let block_count = le_u32(data, 28)? as usize;
@@ -108,16 +134,31 @@ impl IoStoreToc {
             return Err(fail("invalid IoStore TOC header dimensions"));
         }
         // Bound allocations by the actual file size before reserving vectors.
-        if entry_count > data.len() / 22 || block_count > data.len() / 12
-            || method_count > 64 || method_name_len > 256 {
+        if entry_count > data.len() / 22
+            || block_count > data.len() / 12
+            || method_count > 64
+            || method_name_len > 256
+        {
             return Err(fail("unreasonable IoStore TOC counts"));
         }
 
         let container_id = le_u64(data, 56)?;
         let flags = data[80];
-        let partition_size = if version >= 3 { le_u64(data, 88)? } else { u64::MAX };
-        let seed_count = if version >= 4 { le_u32(data, 84)? as usize } else { 0 };
-        let no_hash_count = if version >= 5 { le_u32(data, 96)? as usize } else { 0 };
+        let partition_size = if version >= 3 {
+            le_u64(data, 88)?
+        } else {
+            u64::MAX
+        };
+        let seed_count = if version >= 4 {
+            le_u32(data, 84)? as usize
+        } else {
+            0
+        };
+        let no_hash_count = if version >= 5 {
+            le_u32(data, 96)? as usize
+        } else {
+            0
+        };
 
         let mut at = HEADER_SIZE;
         let ids_end = section_end(at, entry_count, 12, data.len())?;
@@ -145,7 +186,10 @@ impl IoStoreToc {
                     padding: id[10],
                     kind: id[11],
                 },
-                ChunkRange { offset: be_u40(&range[..5]), length: be_u40(&range[5..]) },
+                ChunkRange {
+                    offset: be_u40(&range[..5]),
+                    length: be_u40(&range[5..]),
+                },
             ));
         }
 
@@ -167,20 +211,45 @@ impl IoStoreToc {
             compression_methods.push(String::from_utf8_lossy(&raw[..end]).trim().to_string());
         }
 
-        Ok(Self { version, container_id, flags, block_size, partition_count, partition_size, chunks, blocks, compression_methods })
+        Ok(Self {
+            version,
+            container_id,
+            flags,
+            block_size,
+            partition_count,
+            partition_size,
+            chunks,
+            blocks,
+            compression_methods,
+        })
     }
 
     pub fn shader_chunk_count(&self) -> usize {
-        if self.version < 4 { return 0; }
-        self.chunks.iter().filter(|(id, _)| id.kind == CHUNK_SHADER_LIBRARY || id.kind == CHUNK_SHADER_CODE).count()
+        if self.version < 4 {
+            return 0;
+        }
+        self.chunks
+            .iter()
+            .filter(|(id, _)| id.kind == CHUNK_SHADER_LIBRARY || id.kind == CHUNK_SHADER_CODE)
+            .count()
     }
 
     pub fn export_bundle_chunk_count(&self) -> usize {
-        self.chunks.iter().filter(|(id, _)| (self.version >= 4 && id.kind == CHUNK_EXPORT_BUNDLE_UE5) || (self.version <= 3 && id.kind == CHUNK_EXPORT_BUNDLE_UE427)).count()
+        self.chunks
+            .iter()
+            .filter(|(id, _)| {
+                (self.version >= 4 && id.kind == CHUNK_EXPORT_BUNDLE_UE5)
+                    || (self.version <= 3 && id.kind == CHUNK_EXPORT_BUNDLE_UE427)
+            })
+            .count()
     }
 
-    pub fn is_encrypted(&self) -> bool { self.flags & 0x02 != 0 }
-    pub fn is_indexed(&self) -> bool { self.flags & 0x08 != 0 }
+    pub fn is_encrypted(&self) -> bool {
+        self.flags & 0x02 != 0
+    }
+    pub fn is_indexed(&self) -> bool {
+        self.flags & 0x08 != 0
+    }
 }
 
 #[cfg(test)]
@@ -190,6 +259,8 @@ mod tests {
     fn fixture() -> Vec<u8> {
         let mut b = vec![0u8; HEADER_SIZE];
         b[..16].copy_from_slice(TOC_MAGIC);
+        // Reserve the chunk-ID table before writing IDs at the end of the header.
+        b.resize(HEADER_SIZE + 24, 0);
         b[16] = 8;
         b[20..24].copy_from_slice(&(HEADER_SIZE as u32).to_le_bytes());
         b[24..28].copy_from_slice(&2u32.to_le_bytes());
@@ -209,12 +280,12 @@ mod tests {
             b[p + 8..p + 10].copy_from_slice(&1u16.to_be_bytes());
             b[p + 11] = kind;
         }
-        b.extend_from_slice(&[0,0,0,0,1, 0,0,0,0,16]);
-        b.extend_from_slice(&[0,0,0,0,2, 0,0,0,0,32]);
+        b.extend_from_slice(&[0, 0, 0, 0, 1, 0, 0, 0, 0, 16]);
+        b.extend_from_slice(&[0, 0, 0, 0, 2, 0, 0, 0, 0, 32]);
         // perfect-hash seed and overflow entries
         b.extend_from_slice(&[0; 8]);
         // one uncompressed block
-        b.extend_from_slice(&[0,0,0,0,0, 16,0,0, 16,0,0, 0]);
+        b.extend_from_slice(&[0, 0, 0, 0, 0, 16, 0, 0, 16, 0, 0, 0]);
         b.extend_from_slice(b"None\0\0\0\0");
         b
     }
