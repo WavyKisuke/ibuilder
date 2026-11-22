@@ -139,7 +139,7 @@ impl IoStoreToc {
             chunks.push((
                 ChunkId {
                     id: u64::from_le_bytes(id[0..8].try_into().unwrap()),
-                    index: u16::from_le_bytes(id[8..10].try_into().unwrap()),
+                    index: u16::from_be_bytes(id[8..10].try_into().unwrap()),
                     padding: id[10],
                     kind: id[11],
                 },
@@ -169,11 +169,11 @@ impl IoStoreToc {
     }
 
     pub fn shader_chunk_count(&self) -> usize {
-        self.chunks.iter().filter(|(id, _)| id.kind == CHUNK_SHADER_LIBRARY || id.kind == CHUNK_SHADER_CODE).count()
+        if self.version < 4 { return 0; }\n        self.chunks.iter().filter(|(id, _)| id.kind == CHUNK_SHADER_LIBRARY || id.kind == CHUNK_SHADER_CODE).count()
     }
 
     pub fn export_bundle_chunk_count(&self) -> usize {
-        self.chunks.iter().filter(|(id, _)| id.kind == CHUNK_EXPORT_BUNDLE_UE5 || (self.version <= 3 && id.kind == CHUNK_EXPORT_BUNDLE_UE427)).count()
+        self.chunks.iter().filter(|(id, _)| (self.version >= 4 && id.kind == CHUNK_EXPORT_BUNDLE_UE5) || (self.version <= 3 && id.kind == CHUNK_EXPORT_BUNDLE_UE427)).count()
     }
 
     pub fn is_encrypted(&self) -> bool { self.flags & 0x02 != 0 }
