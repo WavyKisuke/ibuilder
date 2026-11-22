@@ -13,6 +13,9 @@ pub const CHUNK_SHADER_LIBRARY: u8 = 8;
 pub const CHUNK_SHADER_CODE: u8 = 9;
 pub const CHUNK_EXPORT_BUNDLE_UE5: u8 = 1;
 pub const CHUNK_EXPORT_BUNDLE_UE427: u8 = 2;
+pub const ENCRYPTION_METHOD_NONE: u8 = 0;
+pub const ENCRYPTION_METHOD_AES: u8 = 1;
+pub const ENCRYPTION_METHOD_AES_CTR: u8 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IoStoreError(pub String);
@@ -54,11 +57,15 @@ pub struct IoStoreToc {
     pub version: u8,
     pub container_id: u64,
     pub flags: u8,
+    pub encryption_method: u8,
+    pub directory_index_size: u32,
     pub block_size: u32,
     pub partition_count: u32,
     pub partition_size: u64,
     pub chunks: Vec<(ChunkId, ChunkRange)>,
     pub blocks: Vec<CompressionBlock>,
+    /// Per-block (and optional directory-index) 96-bit IVs for version-10 AES-CTR.
+    pub encryption_ivs: Vec<[u8; 12]>,
     pub compression_methods: Vec<String>,
 }
 
@@ -127,6 +134,7 @@ impl IoStoreToc {
         let method_count = le_u32(data, 36)? as usize;
         let method_name_len = le_u32(data, 40)? as usize;
         let block_size = le_u32(data, 44)?;
+        let directory_index_size = le_u32(data, 48)?;
         // Partition metadata was added after the original single-partition TOC versions.
         // Older containers use one partition spanning the full addressable range.
         let partition_count = if version >= 3 { le_u32(data, 52)? } else { 1 };
@@ -144,6 +152,22 @@ impl IoStoreToc {
 
         let container_id = le_u64(data, 56)?;
         let flags = data[80];
+        // Before TOC v10, encrypted containers use AES-ECB and have no IV table.
+        let encryption_method = if version >= 10 {
+            data[81]
+        } else if flags & 0x02 != 0 {
+            ENCRYPTION_METHOD_AES
+        } else {
+            ENCRYPTION_METHOD_NONE
+        };
+        if version >= 10
+            && !matches!(
+                encryption_method,
+                ENCRYPTION_METHOD_NONE | ENCRYPTION_METHOD_AES | ENCRYPTION_METHOD_AES_CTR
+            )
+        {
+            return Err(fail("unsupported IoStore encryption method"));
+        }
         let partition_size = if version >= 3 {
             le_u64(data, 88)?
         } else {
@@ -172,6 +196,17 @@ impl IoStoreToc {
         let blocks_end = section_end(at, block_count, 12, data.len())?;
         let block_bytes = &data[at..blocks_end];
         at = blocks_end;
+        let iv_count = if version >= 10
+            && flags & 0x02 != 0
+            && encryption_method == ENCRYPTION_METHOD_AES_CTR
+        {
+            block_count + usize::from(flags & 0x08 != 0)
+        } else {
+            0
+        };
+        let iv_end = section_end(at, iv_count, 12, data.len())?;
+        let iv_bytes = &data[at..iv_end];
+        at = iv_end;
         let methods_end = section_end(at, method_count, method_name_len, data.len())?;
         let method_bytes = &data[at..methods_end];
 
@@ -204,6 +239,13 @@ impl IoStoreToc {
             });
         }
 
+        let mut encryption_ivs = Vec::with_capacity(iv_count);
+        for i in 0..iv_count {
+            let mut iv = [0u8; 12];
+            iv.copy_from_slice(&iv_bytes[i * 12..(i + 1) * 12]);
+            encryption_ivs.push(iv);
+        }
+
         let mut compression_methods = Vec::with_capacity(method_count);
         for i in 0..method_count {
             let raw = &method_bytes[i * method_name_len..(i + 1) * method_name_len];
@@ -215,11 +257,14 @@ impl IoStoreToc {
             version,
             container_id,
             flags,
+            encryption_method,
+            directory_index_size,
             block_size,
             partition_count,
             partition_size,
             chunks,
             blocks,
+            encryption_ivs,
             compression_methods,
         })
     }
@@ -305,6 +350,7 @@ mod tests {
     fn ue4_27_export_bundle_is_not_misidentified_as_a_shader_chunk() {
         let mut data = fixture();
         data[16] = 3;
+        data[52..56].copy_from_slice(&1u32.to_le_bytes());
         data[HEADER_SIZE + 11] = CHUNK_EXPORT_BUNDLE_UE427;
         data.drain(HEADER_SIZE + 24 + 20..HEADER_SIZE + 24 + 28);
         data[84..88].copy_from_slice(&0u32.to_le_bytes());
@@ -313,6 +359,26 @@ mod tests {
         assert_eq!(toc.shader_chunk_count(), 0);
         assert_eq!(toc.export_bundle_chunk_count(), 1);
         assert_eq!(toc.chunks[0].0.index, 1);
+        assert_eq!(toc.partition_count, 1);
+        assert_eq!(toc.partition_size, 0x10000);
+    }
+
+    #[test]
+    fn parses_version_10_aes_ctr_ivs_before_compression_names() {
+        let mut data = fixture();
+        data[16] = 10;
+        data[80] = 0x02; // Encrypted
+        data[81] = ENCRYPTION_METHOD_AES_CTR;
+        let iv_offset = HEADER_SIZE + 24 + 20 + 8 + 12;
+        data.splice(iv_offset..iv_offset, [0x5au8; 12]);
+
+        let toc = IoStoreToc::parse(&data).unwrap();
+        assert_eq!(toc.encryption_method, ENCRYPTION_METHOD_AES_CTR);
+        assert_eq!(toc.encryption_ivs, vec![[0x5a; 12]]);
+        assert_eq!(toc.compression_methods, vec!["None"]);
+
+        data.drain(iv_offset..iv_offset + 12);
+        assert!(IoStoreToc::parse(&data).is_err());
     }
 
     #[test]
