@@ -4,15 +4,16 @@ This page tracks the incremental Unreal reader in `ibuilder-shadersplit`.
 
 ## Layer 1: TOC metadata reader
 
-`src/unreal.rs` adds a bounds-checked, safe-Rust parser for the fixed 144-byte IoStore TOC header and the chunk ID, chunk range, compression-block, and compression-method tables.
+`src/unreal.rs` adds a bounds-checked, safe-Rust parser for the fixed 144-byte IoStore TOC header and the chunk ID, chunk range, compression-block, and compression-method tables. It also accounts for the version-10 AES-CTR IV table so those IV bytes are not mistaken for compression-method names. It records the encryption method and IVs but does not decrypt payloads.
 
 It exposes:
-- Container version, ID, flags, partition count and partition size.
+- Container version, ID, flags, encryption method, directory-index size, partition count and partition size.
 - Chunk IDs and their uncompressed-stream ranges.
 - Compression-block offsets, stored/raw sizes, and method indices.
+- Version-10 AES-CTR IVs, including the optional directory-index IV.
 - Shader-library / shader-code and export-bundle chunk counts.
 
-The parser has synthetic tests for shader chunk metadata and malformed/truncated TOCs. It is deliberately metadata-only at this stage.
+The parser has synthetic tests for shader chunk metadata, UE4.27 partition metadata, version-10 AES-CTR IV placement, and malformed/truncated TOCs. It is deliberately metadata-only at this stage. Signed-container signature blocks, directory-index contents, and per-chunk metadata are not decoded yet.
 
 ## Not implemented yet
 
