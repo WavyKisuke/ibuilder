@@ -101,7 +101,9 @@ impl IoStoreToc {
         let method_count = le_u32(data, 36)? as usize;
         let method_name_len = le_u32(data, 40)? as usize;
         let block_size = le_u32(data, 44)?;
-        let partition_count = le_u32(data, 52)?;
+        // Partition metadata was added after the original single-partition TOC versions.
+        // Older containers use one partition spanning the full addressable range.
+        let partition_count = if version >= 3 { le_u32(data, 52)? } else { 1 };
         if header_size != HEADER_SIZE || block_entry_size != 12 || block_size == 0 {
             return Err(fail("invalid IoStore TOC header dimensions"));
         }
@@ -113,7 +115,7 @@ impl IoStoreToc {
 
         let container_id = le_u64(data, 56)?;
         let flags = data[80];
-        let partition_size = le_u64(data, 88)?;
+        let partition_size = if version >= 3 { le_u64(data, 88)? } else { u64::MAX };
         let seed_count = if version >= 4 { le_u32(data, 84)? as usize } else { 0 };
         let no_hash_count = if version >= 5 { le_u32(data, 96)? as usize } else { 0 };
 
@@ -207,7 +209,6 @@ mod tests {
             b[p + 8..p + 10].copy_from_slice(&1u16.to_be_bytes());
             b[p + 11] = kind;
         }
-        let ranges = HEADER_SIZE + 24;
         b.extend_from_slice(&[0,0,0,0,1, 0,0,0,0,16]);
         b.extend_from_slice(&[0,0,0,0,2, 0,0,0,0,32]);
         // perfect-hash seed and overflow entries
@@ -215,7 +216,6 @@ mod tests {
         // one uncompressed block
         b.extend_from_slice(&[0,0,0,0,0, 16,0,0, 16,0,0, 0]);
         b.extend_from_slice(b"None\0\0\0\0");
-        let _ = ranges;
         b
     }
 
