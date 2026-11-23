@@ -378,8 +378,7 @@ impl<'a> IoStoreReader<'a> {
                     let index = physical / self.toc.partition_size;
                     let offset = physical % self.toc.partition_size;
                     (
-                        usize::try_from(index)
-                            .map_err(|_| fail("invalid UCAS partition index"))?,
+                        usize::try_from(index).map_err(|_| fail("invalid UCAS partition index"))?,
                         offset,
                     )
                 } else {
