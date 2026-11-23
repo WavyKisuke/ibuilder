@@ -523,6 +523,7 @@ mod tests {
         let mut toc = IoStoreToc::parse(&fixture()).unwrap();
         toc.partition_count = 1;
         toc.chunks[0].1 = ChunkRange { offset: 0, length: 4 };
+        toc.blocks[0] = CompressionBlock { offset: 0, compressed_size: 8, uncompressed_size: 8, method: 0 };
         let source = crate::source::MemSource(b"abcd");
         let mut compressed = toc.clone();
         compressed.blocks[0].method = 1;
