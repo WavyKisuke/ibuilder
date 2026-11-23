@@ -487,4 +487,51 @@ mod tests {
         assert!(IoStoreToc::parse(b"not a toc").is_err());
         assert!(IoStoreToc::parse(&fixture()[..80]).is_err());
     }
+    #[test]
+    fn reads_stored_chunk_bytes_and_enforces_limit() {
+        let mut toc = IoStoreToc::parse(&fixture()).unwrap();
+        toc.partition_count = 1;
+        toc.chunks[0].1 = ChunkRange { offset: 4, length: 4 };
+        toc.blocks[0] = CompressionBlock {
+            offset: 0, compressed_size: 8, uncompressed_size: 8, method: 0,
+        };
+        let data = b"abcdefgh";
+        let source = crate::source::MemSource(data);
+        let reader = IoStoreReader::new(&toc, &[&source]).unwrap();
+        assert_eq!(reader.read_chunk(0, 4).unwrap(), b"efgh");
+        assert!(reader.read_chunk(0, 3).is_err());
+    }
+
+    #[test]
+    fn reads_chunk_across_ucas_partitions() {
+        let mut toc = IoStoreToc::parse(&fixture()).unwrap();
+        toc.partition_count = 2;
+        toc.partition_size = 8;
+        toc.chunks[0].1 = ChunkRange { offset: 6, length: 4 };
+        toc.blocks = vec![
+            CompressionBlock { offset: 0, compressed_size: 8, uncompressed_size: 8, method: 0 },
+            CompressionBlock { offset: 8, compressed_size: 8, uncompressed_size: 8, method: 0 },
+        ];
+        let first = crate::source::MemSource(b"abcdefgh");
+        let second = crate::source::MemSource(b"ijklmnop");
+        let reader = IoStoreReader::new(&toc, &[&first, &second]).unwrap();
+        assert_eq!(reader.read_chunk(0, 16).unwrap(), b"ghij");
+    }
+
+    #[test]
+    fn rejects_compressed_encrypted_and_truncated_payloads() {
+        let mut toc = IoStoreToc::parse(&fixture()).unwrap();
+        toc.partition_count = 1;
+        toc.chunks[0].1 = ChunkRange { offset: 0, length: 4 };
+        let source = crate::source::MemSource(b"abcd");
+        let mut compressed = toc.clone();
+        compressed.blocks[0].method = 1;
+        assert!(IoStoreReader::new(&compressed, &[&source]).unwrap().read_chunk(0, 8).is_err());
+        let mut encrypted = toc.clone();
+        encrypted.flags |= 0x02;
+        encrypted.encryption_method = ENCRYPTION_METHOD_AES;
+        assert!(IoStoreReader::new(&encrypted, &[&source]).unwrap().read_chunk(0, 8).is_err());
+        assert!(IoStoreReader::new(&toc, &[&source]).unwrap().read_chunk(0, 8).is_err());
+    }
+
 }
