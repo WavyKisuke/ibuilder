@@ -296,8 +296,73 @@ impl IoStoreToc {
     }
 }
 
-/// Reads uncompressed IoStore chunk ranges from caller-opened UCAS partitions.
-/// Only stored (uncompressed), unencrypted blocks are supported in this first version.
+/// Decode one complete IoStore compression block. Method zero is stored; nonzero
+/// method values are one-based indices into the TOC compression-method table.
+fn decode_block(
+    toc: &IoStoreToc,
+    method: u8,
+    input: &[u8],
+    expected: usize,
+) -> Result<Vec<u8>, IoStoreError> {
+    if method == 0 {
+        if input.len() != expected {
+            return Err(fail("stored IoStore block has mismatched sizes"));
+        }
+        return Ok(input.to_vec());
+    }
+
+    let name = toc
+        .compression_methods
+        .get(usize::from(method - 1))
+        .ok_or_else(|| fail("IoStore block references an unknown compression method"))?;
+    let normalized = name.trim().to_ascii_lowercase();
+    let output = match normalized.as_str() {
+        "lz4" => {
+            let mut out = vec![0u8; expected];
+            let written = lz4_flex::block::decompress_into(input, &mut out)
+                .map_err(|e| IoStoreError(format!("IoStore LZ4 decompression failed: {e}")))?;
+            if written != expected {
+                return Err(fail("IoStore LZ4 block has an unexpected decoded size"));
+            }
+            out
+        }
+        "zlib" => {
+            use std::io::Read;
+            let decoder = flate2::read::ZlibDecoder::new(input);
+            let mut out = Vec::new();
+            decoder
+                .take(expected as u64 + 1)
+                .read_to_end(&mut out)
+                .map_err(|e| IoStoreError(format!("IoStore zlib decompression failed: {e}")))?;
+            out
+        }
+        "gzip" => {
+            use std::io::Read;
+            let decoder = flate2::read::GzDecoder::new(input);
+            let mut out = Vec::new();
+            decoder
+                .take(expected as u64 + 1)
+                .read_to_end(&mut out)
+                .map_err(|e| IoStoreError(format!("IoStore gzip decompression failed: {e}")))?;
+            out
+        }
+        "zstd" => crate::zstd::Ruzstd
+            .decompress_capped(input, None, Some(expected), expected)
+            .map_err(|e| IoStoreError(format!("IoStore zstd decompression failed: {e}")))?,
+        _ => {
+            return Err(IoStoreError(format!(
+                "unsupported IoStore compression method: {name}"
+            )));
+        }
+    };
+    if output.len() != expected {
+        return Err(fail("IoStore compression block has an unexpected decoded size"));
+    }
+    Ok(output)
+}
+
+/// Reads chunk ranges from caller-opened UCAS partitions. Stored, LZ4, zlib,
+/// gzip, and zstd blocks are supported; encrypted payloads remain unsupported.
 pub struct IoStoreReader<'a> {
     toc: &'a IoStoreToc,
     partitions: &'a [&'a dyn crate::source::Source],
@@ -360,20 +425,7 @@ impl<'a> IoStoreReader<'a> {
             let overlap_end = end.min(logical_end);
 
             if overlap_start < overlap_end {
-                if block.method != 0 {
-                    return Err(fail("compressed IoStore blocks are not supported yet"));
-                }
-                if block.compressed_size != block.uncompressed_size {
-                    return Err(fail("stored IoStore block has mismatched sizes"));
-                }
-
-                let within_block = overlap_start - logical_start;
-                let read_len = usize::try_from(overlap_end - overlap_start)
-                    .map_err(|_| fail("IoStore block slice is too large"))?;
-                let physical = block
-                    .offset
-                    .checked_add(within_block)
-                    .ok_or_else(|| fail("IoStore physical offset overflow"))?;
+                let physical = block.offset;
                 let (partition_index, partition_offset) = if self.toc.partition_count > 1 {
                     let index = physical / self.toc.partition_size;
                     let offset = physical % self.toc.partition_size;
@@ -388,15 +440,27 @@ impl<'a> IoStoreReader<'a> {
                     .partitions
                     .get(partition_index)
                     .ok_or_else(|| fail("UCAS block references a missing partition"))?;
-                let bytes = source
-                    .read(partition_offset, read_len)
+                let compressed_size = usize::try_from(block.compressed_size)
+                    .map_err(|_| fail("IoStore compressed block is too large"))?;
+                let compressed = source
+                    .read(partition_offset, compressed_size)
                     .map_err(|e| IoStoreError(format!("UCAS read failed: {e}")))?;
-                if bytes.len() != read_len {
+                if compressed.len() != compressed_size {
                     return Err(fail("truncated UCAS compression block"));
                 }
-                output.extend_from_slice(&bytes);
+                let decoded_size = usize::try_from(block.uncompressed_size)
+                    .map_err(|_| fail("IoStore decoded block is too large"))?;
+                let decoded = decode_block(self.toc, block.method, &compressed, decoded_size)?;
+                let within_start = usize::try_from(overlap_start - logical_start)
+                    .map_err(|_| fail("IoStore block slice is too large"))?;
+                let within_end = usize::try_from(overlap_end - logical_start)
+                    .map_err(|_| fail("IoStore block slice is too large"))?;
+                let slice = decoded
+                    .get(within_start..within_end)
+                    .ok_or_else(|| fail("IoStore decoded block range is invalid"))?;
+                output.extend_from_slice(slice);
                 copied = copied
-                    .checked_add(read_len)
+                    .checked_add(slice.len())
                     .ok_or_else(|| fail("IoStore output length overflow"))?;
             }
 
