@@ -520,7 +520,7 @@ mod tests {
         };
         let data = b"abcdefgh";
         let source = crate::source::MemSource(data);
-        let partitions = [&source];
+        let partitions: [&dyn crate::source::Source; 1] = [&source];
         let reader = IoStoreReader::new(&toc, &partitions).unwrap();
         assert_eq!(reader.read_chunk(0, 4).unwrap(), b"efgh");
         assert!(reader.read_chunk(0, 3).is_err());
@@ -551,7 +551,7 @@ mod tests {
         ];
         let first = crate::source::MemSource(b"abcdefgh");
         let second = crate::source::MemSource(b"ijklmnop");
-        let partitions = [&first, &second];
+        let partitions: [&dyn crate::source::Source; 2] = [&first, &second];
         let reader = IoStoreReader::new(&toc, &partitions).unwrap();
         assert_eq!(reader.read_chunk(0, 16).unwrap(), b"ghij");
     }
