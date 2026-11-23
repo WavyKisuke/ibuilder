@@ -621,6 +621,40 @@ mod tests {
     }
 
     #[test]
+    fn decodes_lz4_iostore_blocks_and_checks_decoded_size() {
+        let raw = b"Unreal IoStore LZ4 fixture";
+        let compressed = lz4_flex::block::compress(raw);
+        let mut toc = IoStoreToc::parse(&fixture()).unwrap();
+        toc.compression_methods = vec!["LZ4".into()];
+        assert_eq!(decode_block(&toc, 1, &compressed, raw.len()).unwrap(), raw);
+        assert!(decode_block(&toc, 1, &compressed, raw.len() - 1).is_err());
+    }
+
+    #[test]
+    fn decodes_zlib_iostore_blocks_and_checks_decoded_size() {
+        use std::io::Write;
+        let raw = b"Unreal IoStore zlib fixture";
+        let mut encoder = flate2::write::ZlibEncoder::new(
+            Vec::new(),
+            flate2::Compression::default(),
+        );
+        encoder.write_all(raw).unwrap();
+        let compressed = encoder.finish().unwrap();
+        let mut toc = IoStoreToc::parse(&fixture()).unwrap();
+        toc.compression_methods = vec!["Zlib".into()];
+        assert_eq!(decode_block(&toc, 1, &compressed, raw.len()).unwrap(), raw);
+        assert!(decode_block(&toc, 1, &compressed, raw.len() + 1).is_err());
+    }
+
+    #[test]
+    fn rejects_unknown_iostore_compression_methods() {
+        let mut toc = IoStoreToc::parse(&fixture()).unwrap();
+        toc.compression_methods = vec!["Oodle".into()];
+        assert!(decode_block(&toc, 1, b"payload", 7).is_err());
+        assert!(decode_block(&toc, 2, b"payload", 7).is_err());
+    }
+
+    #[test]
     fn rejects_compressed_encrypted_and_truncated_payloads() {
         let mut toc = IoStoreToc::parse(&fixture()).unwrap();
         toc.partition_count = 1;
