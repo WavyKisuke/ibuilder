@@ -327,14 +327,19 @@ impl<'a> IoStoreReader<'a> {
         chunk_index: usize,
         max_output_bytes: usize,
     ) -> Result<Vec<u8>, IoStoreError> {
-        let (_, range) = self.toc.chunks.get(chunk_index)
+        let (_, range) = self
+            .toc
+            .chunks
+            .get(chunk_index)
             .ok_or_else(|| fail("IoStore chunk index is out of range"))?;
         let output_len = usize::try_from(range.length)
             .map_err(|_| fail("IoStore chunk is too large for this platform"))?;
         if output_len > max_output_bytes {
             return Err(fail("IoStore chunk exceeds the configured read limit"));
         }
-        let end = range.offset.checked_add(range.length)
+        let end = range
+            .offset
+            .checked_add(range.length)
             .ok_or_else(|| fail("IoStore chunk range overflow"))?;
 
         if self.toc.is_encrypted() || self.toc.encryption_method != ENCRYPTION_METHOD_NONE {
@@ -342,13 +347,15 @@ impl<'a> IoStoreReader<'a> {
         }
 
         let mut output = Vec::new();
-        output.try_reserve_exact(output_len)
+        output
+            .try_reserve_exact(output_len)
             .map_err(|_| fail("unable to allocate IoStore chunk buffer"))?;
 
         let mut logical_start = 0u64;
         let mut copied = 0usize;
         for block in &self.toc.blocks {
-            let logical_end = logical_start.checked_add(u64::from(block.uncompressed_size))
+            let logical_end = logical_start
+                .checked_add(u64::from(block.uncompressed_size))
                 .ok_or_else(|| fail("IoStore block range overflow"))?;
             let overlap_start = range.offset.max(logical_start);
             let overlap_end = end.min(logical_end);
@@ -364,16 +371,24 @@ impl<'a> IoStoreReader<'a> {
                 let within_block = overlap_start - logical_start;
                 let read_len = usize::try_from(overlap_end - overlap_start)
                     .map_err(|_| fail("IoStore block slice is too large"))?;
-                let physical = block.offset.checked_add(within_block)
+                let physical = block
+                    .offset
+                    .checked_add(within_block)
                     .ok_or_else(|| fail("IoStore physical offset overflow"))?;
                 let (partition_index, partition_offset) = if self.toc.partition_count > 1 {
                     let index = physical / self.toc.partition_size;
                     let offset = physical % self.toc.partition_size;
-                    (usize::try_from(index).map_err(|_| fail("invalid UCAS partition index"))?, offset)
+                    (
+                        usize::try_from(index)
+                            .map_err(|_| fail("invalid UCAS partition index"))?,
+                        offset,
+                    )
                 } else {
                     (0, physical)
                 };
-                let source = self.partitions.get(partition_index)
+                let source = self
+                    .partitions
+                    .get(partition_index)
                     .ok_or_else(|| fail("UCAS block references a missing partition"))?;
                 let bytes = source.read(partition_offset, read_len)
                     .map_err(|e| IoStoreError(format!("UCAS read failed: {e}")))?;
@@ -381,7 +396,8 @@ impl<'a> IoStoreReader<'a> {
                     return Err(fail("truncated UCAS compression block"));
                 }
                 output.extend_from_slice(&bytes);
-                copied = copied.checked_add(read_len)
+                copied = copied
+                    .checked_add(read_len)
                     .ok_or_else(|| fail("IoStore output length overflow"))?;
             }
 
@@ -493,11 +509,15 @@ mod tests {
         toc.partition_count = 1;
         toc.chunks[0].1 = ChunkRange { offset: 4, length: 4 };
         toc.blocks[0] = CompressionBlock {
-            offset: 0, compressed_size: 8, uncompressed_size: 8, method: 0,
+            offset: 0,
+            compressed_size: 8,
+            uncompressed_size: 8,
+            method: 0,
         };
         let data = b"abcdefgh";
         let source = crate::source::MemSource(data);
-        let reader = IoStoreReader::new(&toc, &[&source]).unwrap();
+        let partitions = [&source];
+        let reader = IoStoreReader::new(&toc, &partitions).unwrap();
         assert_eq!(reader.read_chunk(0, 4).unwrap(), b"efgh");
         assert!(reader.read_chunk(0, 3).is_err());
     }
@@ -509,12 +529,23 @@ mod tests {
         toc.partition_size = 8;
         toc.chunks[0].1 = ChunkRange { offset: 6, length: 4 };
         toc.blocks = vec![
-            CompressionBlock { offset: 0, compressed_size: 8, uncompressed_size: 8, method: 0 },
-            CompressionBlock { offset: 8, compressed_size: 8, uncompressed_size: 8, method: 0 },
+            CompressionBlock {
+                offset: 0,
+                compressed_size: 8,
+                uncompressed_size: 8,
+                method: 0,
+            },
+            CompressionBlock {
+                offset: 8,
+                compressed_size: 8,
+                uncompressed_size: 8,
+                method: 0,
+            },
         ];
         let first = crate::source::MemSource(b"abcdefgh");
         let second = crate::source::MemSource(b"ijklmnop");
-        let reader = IoStoreReader::new(&toc, &[&first, &second]).unwrap();
+        let partitions = [&first, &second];
+        let reader = IoStoreReader::new(&toc, &partitions).unwrap();
         assert_eq!(reader.read_chunk(0, 16).unwrap(), b"ghij");
     }
 
@@ -523,16 +554,35 @@ mod tests {
         let mut toc = IoStoreToc::parse(&fixture()).unwrap();
         toc.partition_count = 1;
         toc.chunks[0].1 = ChunkRange { offset: 0, length: 4 };
-        toc.blocks[0] = CompressionBlock { offset: 0, compressed_size: 8, uncompressed_size: 8, method: 0 };
+        toc.blocks[0] = CompressionBlock {
+            offset: 0,
+            compressed_size: 8,
+            uncompressed_size: 8,
+            method: 0,
+        };
         let source = crate::source::MemSource(b"abcd");
         let mut compressed = toc.clone();
         compressed.blocks[0].method = 1;
-        assert!(IoStoreReader::new(&compressed, &[&source]).unwrap().read_chunk(0, 8).is_err());
+        assert!(
+            IoStoreReader::new(&compressed, &[&source])
+                .unwrap()
+                .read_chunk(0, 8)
+                .is_err()
+        );
         let mut encrypted = toc.clone();
         encrypted.flags |= 0x02;
         encrypted.encryption_method = ENCRYPTION_METHOD_AES;
-        assert!(IoStoreReader::new(&encrypted, &[&source]).unwrap().read_chunk(0, 8).is_err());
-        assert!(IoStoreReader::new(&toc, &[&source]).unwrap().read_chunk(0, 8).is_err());
+        assert!(
+            IoStoreReader::new(&encrypted, &[&source])
+                .unwrap()
+                .read_chunk(0, 8)
+                .is_err()
+        );
+        assert!(
+            IoStoreReader::new(&toc, &[&source])
+                .unwrap()
+                .read_chunk(0, 8)
+                .is_err()
+        );
     }
-
 }
