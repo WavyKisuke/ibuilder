@@ -296,7 +296,6 @@ impl IoStoreToc {
     }
 }
 
-
 /// Reads uncompressed IoStore chunk ranges from caller-opened UCAS partitions.
 /// Only stored (uncompressed), unencrypted blocks are supported in this first version.
 pub struct IoStoreReader<'a> {
@@ -390,7 +389,8 @@ impl<'a> IoStoreReader<'a> {
                     .partitions
                     .get(partition_index)
                     .ok_or_else(|| fail("UCAS block references a missing partition"))?;
-                let bytes = source.read(partition_offset, read_len)
+                let bytes = source
+                    .read(partition_offset, read_len)
                     .map_err(|e| IoStoreError(format!("UCAS read failed: {e}")))?;
                 if bytes.len() != read_len {
                     return Err(fail("truncated UCAS compression block"));
@@ -408,7 +408,9 @@ impl<'a> IoStoreReader<'a> {
         }
 
         if copied != output_len {
-            return Err(fail("IoStore chunk range exceeds available compression blocks"));
+            return Err(fail(
+                "IoStore chunk range exceeds available compression blocks",
+            ));
         }
         Ok(output)
     }
@@ -507,7 +509,10 @@ mod tests {
     fn reads_stored_chunk_bytes_and_enforces_limit() {
         let mut toc = IoStoreToc::parse(&fixture()).unwrap();
         toc.partition_count = 1;
-        toc.chunks[0].1 = ChunkRange { offset: 4, length: 4 };
+        toc.chunks[0].1 = ChunkRange {
+            offset: 4,
+            length: 4,
+        };
         toc.blocks[0] = CompressionBlock {
             offset: 0,
             compressed_size: 8,
@@ -527,7 +532,10 @@ mod tests {
         let mut toc = IoStoreToc::parse(&fixture()).unwrap();
         toc.partition_count = 2;
         toc.partition_size = 8;
-        toc.chunks[0].1 = ChunkRange { offset: 6, length: 4 };
+        toc.chunks[0].1 = ChunkRange {
+            offset: 6,
+            length: 4,
+        };
         toc.blocks = vec![
             CompressionBlock {
                 offset: 0,
@@ -553,7 +561,10 @@ mod tests {
     fn rejects_compressed_encrypted_and_truncated_payloads() {
         let mut toc = IoStoreToc::parse(&fixture()).unwrap();
         toc.partition_count = 1;
-        toc.chunks[0].1 = ChunkRange { offset: 0, length: 4 };
+        toc.chunks[0].1 = ChunkRange {
+            offset: 0,
+            length: 4,
+        };
         toc.blocks[0] = CompressionBlock {
             offset: 0,
             compressed_size: 8,
