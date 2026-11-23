@@ -356,7 +356,9 @@ fn decode_block(
         }
     };
     if output.len() != expected {
-        return Err(fail("IoStore compression block has an unexpected decoded size"));
+        return Err(fail(
+            "IoStore compression block has an unexpected decoded size",
+        ));
     }
     Ok(output)
 }
@@ -634,10 +636,8 @@ mod tests {
     fn decodes_zlib_iostore_blocks_and_checks_decoded_size() {
         use std::io::Write;
         let raw = b"Unreal IoStore zlib fixture";
-        let mut encoder = flate2::write::ZlibEncoder::new(
-            Vec::new(),
-            flate2::Compression::default(),
-        );
+        let mut encoder =
+            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
         encoder.write_all(raw).unwrap();
         let compressed = encoder.finish().unwrap();
         let mut toc = IoStoreToc::parse(&fixture()).unwrap();
