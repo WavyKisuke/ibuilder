@@ -22,7 +22,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feature/unreal-iostore-shaders']
   pull_request:
   workflow_dispatch:
 

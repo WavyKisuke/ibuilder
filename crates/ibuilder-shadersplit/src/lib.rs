@@ -28,6 +28,7 @@ pub mod source;
 pub mod spill;
 pub mod split;
 pub mod unity;
+pub mod unreal;
 // generated file, kept exactly as tools/gen_known_trees.py writes it (rustfmt would reflow it, so a regeneration would not reproduce the committed text)
 #[rustfmt::skip]
 mod unity_trees;
@@ -36,4 +37,5 @@ pub mod zstd;
 
 pub use error::{Failure, SplitError};
 pub use split::{JobGate, NoGate, SplitOptions, SplitStats, split, split_version};
+pub use unreal::{IoStoreError, IoStoreReader, IoStoreToc};
 pub use zstd::{Ruzstd, Zstd};
