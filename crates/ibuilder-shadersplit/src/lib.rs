@@ -37,5 +37,5 @@ pub mod zstd;
 
 pub use error::{Failure, SplitError};
 pub use split::{JobGate, NoGate, SplitOptions, SplitStats, split, split_version};
-pub use unreal::{IoStoreError, IoStoreToc};
+pub use unreal::{IoStoreError, IoStoreReader, IoStoreToc};
 pub use zstd::{Ruzstd, Zstd};
