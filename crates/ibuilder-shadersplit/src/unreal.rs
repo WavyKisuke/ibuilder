@@ -570,7 +570,7 @@ mod tests {
             uncompressed_size: 8,
             method: 0,
         };
-        let source = crate::source::MemSource(b"abcd");
+        let source = crate::source::MemSource(b"ab");
         let mut compressed = toc.clone();
         compressed.blocks[0].method = 1;
         assert!(
