@@ -347,7 +347,7 @@ fn decode_block(
             out
         }
         "zstd" => crate::zstd::Ruzstd
-            .decompress_capped(input, None, Some(expected), expected)
+            .decompress_capped(input, None, Some(expected.saturating_add(1)), expected)
             .map_err(|e| IoStoreError(format!("IoStore zstd decompression failed: {e}")))?,
         _ => {
             return Err(IoStoreError(format!(
