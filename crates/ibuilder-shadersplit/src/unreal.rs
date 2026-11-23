@@ -296,6 +296,108 @@ impl IoStoreToc {
     }
 }
 
+
+/// Reads uncompressed IoStore chunk ranges from caller-opened UCAS partitions.
+/// Only stored (uncompressed), unencrypted blocks are supported in this first version.
+pub struct IoStoreReader<'a> {
+    toc: &'a IoStoreToc,
+    partitions: &'a [&'a dyn crate::source::Source],
+}
+
+impl<'a> IoStoreReader<'a> {
+    pub fn new(
+        toc: &'a IoStoreToc,
+        partitions: &'a [&'a dyn crate::source::Source],
+    ) -> Result<Self, IoStoreError> {
+        if partitions.len() != toc.partition_count as usize {
+            return Err(fail("IoStore partition source count does not match TOC"));
+        }
+        if partitions.is_empty() {
+            return Err(fail("IoStore container has no UCAS partitions"));
+        }
+        if toc.partition_count > 1 && toc.partition_size == 0 {
+            return Err(fail("invalid IoStore partition size"));
+        }
+        Ok(Self { toc, partitions })
+    }
+
+    /// Read a chunk by TOC entry index with a caller-controlled allocation cap.
+    pub fn read_chunk(
+        &self,
+        chunk_index: usize,
+        max_output_bytes: usize,
+    ) -> Result<Vec<u8>, IoStoreError> {
+        let (_, range) = self.toc.chunks.get(chunk_index)
+            .ok_or_else(|| fail("IoStore chunk index is out of range"))?;
+        let output_len = usize::try_from(range.length)
+            .map_err(|_| fail("IoStore chunk is too large for this platform"))?;
+        if output_len > max_output_bytes {
+            return Err(fail("IoStore chunk exceeds the configured read limit"));
+        }
+        let end = range.offset.checked_add(range.length)
+            .ok_or_else(|| fail("IoStore chunk range overflow"))?;
+
+        if self.toc.is_encrypted() || self.toc.encryption_method != ENCRYPTION_METHOD_NONE {
+            return Err(fail("encrypted IoStore payloads are not supported yet"));
+        }
+
+        let mut output = Vec::new();
+        output.try_reserve_exact(output_len)
+            .map_err(|_| fail("unable to allocate IoStore chunk buffer"))?;
+
+        let mut logical_start = 0u64;
+        let mut copied = 0usize;
+        for block in &self.toc.blocks {
+            let logical_end = logical_start.checked_add(u64::from(block.uncompressed_size))
+                .ok_or_else(|| fail("IoStore block range overflow"))?;
+            let overlap_start = range.offset.max(logical_start);
+            let overlap_end = end.min(logical_end);
+
+            if overlap_start < overlap_end {
+                if block.method != 0 {
+                    return Err(fail("compressed IoStore blocks are not supported yet"));
+                }
+                if block.compressed_size != block.uncompressed_size {
+                    return Err(fail("stored IoStore block has mismatched sizes"));
+                }
+
+                let within_block = overlap_start - logical_start;
+                let read_len = usize::try_from(overlap_end - overlap_start)
+                    .map_err(|_| fail("IoStore block slice is too large"))?;
+                let physical = block.offset.checked_add(within_block)
+                    .ok_or_else(|| fail("IoStore physical offset overflow"))?;
+                let (partition_index, partition_offset) = if self.toc.partition_count > 1 {
+                    let index = physical / self.toc.partition_size;
+                    let offset = physical % self.toc.partition_size;
+                    (usize::try_from(index).map_err(|_| fail("invalid UCAS partition index"))?, offset)
+                } else {
+                    (0, physical)
+                };
+                let source = self.partitions.get(partition_index)
+                    .ok_or_else(|| fail("UCAS block references a missing partition"))?;
+                let bytes = source.read(partition_offset, read_len)
+                    .map_err(|e| IoStoreError(format!("UCAS read failed: {e}")))?;
+                if bytes.len() != read_len {
+                    return Err(fail("truncated UCAS compression block"));
+                }
+                output.extend_from_slice(&bytes);
+                copied = copied.checked_add(read_len)
+                    .ok_or_else(|| fail("IoStore output length overflow"))?;
+            }
+
+            logical_start = logical_end;
+            if logical_start >= end {
+                break;
+            }
+        }
+
+        if copied != output_len {
+            return Err(fail("IoStore chunk range exceeds available compression blocks"));
+        }
+        Ok(output)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
